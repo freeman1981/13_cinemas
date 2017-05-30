@@ -1,3 +1,4 @@
+import re
 import requests
 from lxml import etree
 from bs4 import BeautifulSoup
@@ -50,9 +51,7 @@ def fetch_movie_info(movie_title):
         'kp_query': movie_title
     }
     response = requests.get(search_in_kinopoisk_url, params)
-    soup = BeautifulSoup(response.content, 'lxml')
-    kinopoisk_movie_id = soup.find('div', attrs={'class': 'element most_wanted'}).find(
-        'div', attrs={'class': 'info'}).find('p', attrs={'class': 'name'}).select_one('a[href]').attrs['data-id']
+    kinopoisk_movie_id = _get_kinopoisk_movie_id(response)
     rating_kinopoisk_url = 'https://rating.kinopoisk.ru/{}.xml'.format(kinopoisk_movie_id)
     response = requests.get(rating_kinopoisk_url)
     kp_rating_tag = etree.fromstring(response.content).xpath('kp_rating')[0]
@@ -61,12 +60,30 @@ def fetch_movie_info(movie_title):
     return rating_ball, rating_count
 
 
-def output_movies_to_console(movies):
-    for movie in sorted(movies, key=lambda x: x):
-        print('{movie.title}\t{movie.rating}\t{movie.rating_count}\n'.format(movie))
+def _get_kinopoisk_movie_id(response):
+    match = re.match(r'https:\/\/www\.kinopoisk\.ru\/film\/(\d+)/', response.url)
+    if match is not None:
+        return match.group(1)
+    else:
+        soup = BeautifulSoup(response.content, 'lxml')
+        return soup.find('div', attrs={'class': 'element most_wanted'}).find(
+            'div', attrs={'class': 'info'}).find('p', attrs={'class': 'name'}).select_one('a[href]').attrs['data-id']
+
+
+def output_movies_to_console(movies, top_size, min_theatres_count=0):
+    header = '{:^50}|{:^14}|{:^14}|{:^14}'.format('title', 'theatres count', 'rate', 'rate count')
+    print(header)
+    print('-' * len(header))
+    for movie in sorted(
+            movies, key=lambda item: (item.theatres_count >= min_theatres_count, item.rate), reverse=True)[:top_size]:
+        truncated_movie_title = '{}...'.format(movie.title[:47]) if len(movie.title) > 50 else movie.title
+        print('{truncated_movie_title:>50}|{movie.theatres_count:>14}|{movie.rate:>14}|{movie.rate_count:>14}'.format(
+            truncated_movie_title=truncated_movie_title, movie=movie))
 
 
 if __name__ == '__main__':
     afisha_html = fetch_afisha_page()
     movies = parse_afisha_list(afisha_html)
-    output_movies_to_console(movies)
+    top_size = 10
+    min_theatres_count = 100
+    output_movies_to_console(movies, top_size, min_theatres_count)
