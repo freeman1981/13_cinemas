@@ -51,7 +51,7 @@ def fetch_movie_info(movie_title):
         'kp_query': movie_title
     }
     response = requests.get(search_in_kinopoisk_url, params)
-    kinopoisk_movie_id = _get_kinopoisk_movie_id(response)
+    kinopoisk_movie_id = _get_kinopoisk_movie_id(response.url, response.content)
     rating_kinopoisk_url = 'https://rating.kinopoisk.ru/{}.xml'.format(kinopoisk_movie_id)
     response = requests.get(rating_kinopoisk_url)
     kp_rating_tag = etree.fromstring(response.content).xpath('kp_rating')[0]
@@ -60,12 +60,12 @@ def fetch_movie_info(movie_title):
     return rating_ball, rating_count
 
 
-def _get_kinopoisk_movie_id(response):
-    match = re.match(r'https:\/\/www\.kinopoisk\.ru\/film\/(\d+)/', response.url)
+def _get_kinopoisk_movie_id(url, content):
+    match = re.match(r'https:\/\/www\.kinopoisk\.ru\/film\/(\d+)/', url)
     if match is not None:
         return match.group(1)
     else:
-        soup = BeautifulSoup(response.content, 'lxml')
+        soup = BeautifulSoup(content, 'lxml')
         return soup.find('div', attrs={'class': 'element most_wanted'}).find(
             'div', attrs={'class': 'info'}).find('p', attrs={'class': 'name'}).select_one('a[href]').attrs['data-id']
 
@@ -74,12 +74,17 @@ def output_movies_to_console(movies, top_size, min_theatres_count=0):
     header = '{:^50}|{:^14}|{:^14}|{:^14}'.format('title', 'theatres count', 'rate', 'rate count')
     print(header)
     print('-' * len(header))
-    for movie in sorted(
-            movies, key=lambda item: (item.theatres_count >= min_theatres_count, item.rate), reverse=True)[:top_size]:
+    for movie in sorted(movies, key=sort_criteria(min_theatres_count), reverse=True)[:top_size]:
         truncated_movie_title = '{}...'.format(movie.title[:47]) if len(movie.title) > 50 else movie.title
         print('{truncated_movie_title:>50}|{movie.theatres_count:>14}|{movie.rate:>14}|{movie.rate_count:>14}'.format(
             truncated_movie_title=truncated_movie_title, movie=movie))
 
+
+def sort_criteria(min_theatres_count):
+    def inner_fun(movie):
+        is_enough_theatre_count = movie.theatres_count >= min_theatres_count
+        return is_enough_theatre_count, movie.rate
+    return inner_fun
 
 if __name__ == '__main__':
     afisha_html = fetch_afisha_page()
